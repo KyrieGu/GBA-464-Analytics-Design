@@ -1,0 +1,188 @@
+---
+title: "National Insurance Case: Factor Analysis"
+author: "Mitchell J. Lovett"
+date: "11/1/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\section{Preample}
+
+In this case we are going to use the National Insurance Case data that is used in class to explore ideas related to dimensionality reduction. We load the data and relevant libraries here. You may need to install the libraries. Some commented out statements might help with the installation of some libraries. 
+
+```{r}
+dir = "~/Dropbox/Analytics Design/Cases/National Ins"
+setwd(dir)
+#library(devtools)
+#install_github("vqv/ggbiplot")
+#install.packages('psych')
+library(foreign)
+library(ggplot2)
+library(ggbiplot)
+library(dplyr)
+library(psych)
+library(stargazer)
+
+filnm = "national"; #this is the name of the file
+natLabData <- read.spss(paste(filnm,".sav",sep=""),to.data.frame=TRUE,use.value.labels=TRUE,trim_values=TRUE)
+natData <- read.spss(paste(filnm,".sav",sep=""),to.data.frame=TRUE,use.value.labels=FALSE);
+```
+
+We are going to focus on the first 22 dimensions. These dimensions relate to the perceptions of the firms along various service quality aspects. These dimensions are expected to be highly related. To assist with later developments, we create a variable itemNames with the names of all of the dimensions to be used for the factor analysis. 
+
+```{r}
+#obtaining names for the items, constructing subset of data
+itemNames = names(natData)[1:22]
+summary(natData[,itemNames])
+```
+The scales are all from 1 to 7 (as expected), but there are missing data (NA's). We will return to the missing data later.
+
+\section{Core factor analysis idea}
+
+```{r}
+cor1 = cor(natData[,itemNames],use="complete.obs")
+#stargazer(cor1,type = "text")
+stargazer(cor1[c(1:4,11:14),c(1:4,11:14)],type = "text") #subset is easier to read!
+```
+Here we select a subset of the correlation matrix to illustrate the idea of how the factors are identified. In the subset of the correlation matrix, we see that p1-p4 have high correlations with each other. However, p11 and p12 are less correlated with p1-p4, but highly correlated with one another. This leads to two relatively distinct groups of variables. Ultimately, these end up being separated in the principle components. 
+
+\section{Need for Complete Cases}
+
+We noted earlier that there were missing cases in the variables we plan to study. We need to drop these for later analyses. We examine here the impact of using only complete.obs (what we need for these methods).
+```{r}
+complete.obs = apply(!is.na(natData[,itemNames]),1,all)
+table(complete.obs)
+```
+
+By considering only complete cases, we lose 77 cases. This number is somewhat larger than any one variable, but not too bad given total survey dataset size. We could do a deep dive to see how dropping these cases affects the representativeness of the sample. For our analysis approach here, the main input is correlations. We show below that the correlations do not differ much.
+
+```{r}
+itemsComplete = natData[complete.obs,itemNames] #are all items available
+cor2 = cor(itemsComplete)
+sum(cor1 == cor2)/length(cor1)
+cor3 = cor(natData[,itemNames],use="pairwise.complete.obs")
+sum(abs(cor2 - cor3)<.05)/length(cor1)
+sum(abs(cor2 - cor3)<.1)/length(cor1)
+```
+Notice cor1 and cor2 give the same answer. But the pairwise complete version (cor3) gives slightly different numbers. Though different, the missing data doesn't affect the overall naure of the relationships, so we move forward with the complete observations. 
+
+\section{Identify and set up the interpretation variables}
+
+Next, we do some data set up. We identify three variables that we might use to interpret the themes or narrowed set of factors --
+\begin{itemize}
+\item their overall service quality perception (oq)
+\item whether they recommend the company (rec)
+\item whether they encountered a problem (prob)
+\end{itemize} 
+
+These variables can help interpret the meaning of the dimensions that arise from the analysis. Typically, we will plot summaries of such variables on the principle component plots. In perceptual mapping, these plots are usually segment brand preferences. In these plots aimed to extract themes or narrow the dimensions, we use overall quality perceptions, whether they'd recommend national, and whether they experienced a problem.
+
+First, we create variables that identify the complete set of observations for each of these variables, since we will need complete observations for the later analyses.
+```{r}
+#Set up variables for interpretation dimensions
+complete.obsRec = complete.obs & !is.na(natData$rec)
+complete.obsProb = complete.obs & !is.na(natData$prob)
+complete.obsOQ = complete.obs & !is.na(natData$oq)
+complete.obsAll = complete.obsOQ & complete.obsProb & complete.obsRec
+```
+
+\section{Run Principle Component Analysis (PCA)}
+Now we run the analysis via principle components analysis (PCA) via prcomp(). Notice we are subsetting to include only the complete observations for all the variables.
+
+```{r}
+resultPCA = prcomp(~.,data=natData[complete.obsAll,itemNames],scale. = TRUE,na.action=na.omit)
+```
+
+\subsection{ScreePlot for Selecting Number of Factors}
+
+With PCA, we first plot the screeplot to evaluate how many components to use. To interpret the screeplot, we consider the "elbow rule." The elbow rule suggests to pick the number of factors, principle components or segments based on when the line bends sharply (where the elbow is). Usually we look at the elbow and just after the elbow to see if these are reasonable options. There are other approaches to selecting the number, but for these methods, we will focus on this approach.
+
+```{r}
+#resultPCA$group = items[,'BrandPref']?
+ggscreeplot(resultPCA) #scree plot looks like there are 2 or 3 factors by the elbow rule
+```
+
+Based on the screeplot and the elbow rule, it appears that 2 or 3 factors are options to consider.  
+
+\subsection{Printing the rotations}
+PCA produces several objects of interest. The first we will discuss is the "rotation," which can be thought of as the new variables (factors or principle components) we are creating. 
+
+We print these rotations using the stargazer function from the stargazer library. This function is useful for printing pretty tables easily. Here we print a "text" table. 
+
+```{r}
+stargazer(resultPCA$rotation[,1:3],type="text")
+#can see the actual rotations here.
+```
+
+If you study these numbers closely, you can see the following points about the three principle components we printed:
+\begin{itemize}
+\item The first principle component (column) has all variables as negative values. This implies that all variables have the same basic relationship to the first principle component. However, if we look closely, we can see that some variables have a much smaller magnitude (p11-14 and p7).
+\item The second principle component has most variables close to zero, except p11-p14 and to a much lesser extent p7. 
+\item The third principle component is much more of a mix.
+\end{itemize}
+
+Overall, this suggests that the first two factors largely separate on p11-p14. In looking at the survey questions, p11-p14 relate to the tangibles aspects of the company (modern-looing equipment, visually appealing physical facilities, neat-appearing employees, etc.) and P7 has to do with convenient operating hours. 
+
+\subsection{Plotting pairs of principle components}
+
+We now plot these first two factors.
+```{r}
+ggbiplot(resultPCA,alpha=.1,ellipse=TRUE)
+```
+
+In the plot, the horizontal dimension means corresponds to the first principle component (PC1) and the vertical to the second principle component (PC2). These values are standardized so that a value of 1 means 1 standard deviation away and 0 is the mean value. 
+
+One arrow is present for each of the 22 statements. The horizontal dimension has all of the arrows pointing about the same distance except for the ones pointing down. These arrows correspond to the P11-P14 statements discussed above. 
+
+Along the axis, we also see that PC1 explains 65\% and PC2 explains 8\% of the variation. This indicates that most of the variation is captured in the first component. 
+
+\subsection{Plotting with interpretation variables added}
+
+We now plot these based along with another variable to illustrate how these components relate to other variables. We make one plot for each of the overall sevice quality (oq), whether they would recommend the service (rec), and whether they experienced a problem (prob). These variables are added using the \emph{group} option. Along with this option, we add the option to include ellipses and to make the ellipse probability be .1. You can try adjusting these to see how it affects the plot.
+
+```{r}
+gg1 = ggbiplot(resultPCA,alpha=.4,group=natData[complete.obsAll,'oq'],choices=c(1,2),ellipse=TRUE,ellipse.prob = .1)
+gg1 + ggtitle("Overall Quality (10=best)")
+gg2 = ggbiplot(resultPCA,alpha=.4,group=natData[complete.obsAll,'rec'],choices=c(1,2),ellipse=TRUE,ellipse.prob = .1)
+gg2 + ggtitle("Recommend? Y=1,N=2")
+gg3 = ggbiplot(resultPCA,alpha=.4,group=natData[complete.obsAll,'prob'],choices=c(1,2),ellipse=TRUE,ellipse.prob = .1)
+gg3 + ggtitle("Problem? Y=1,N=2")
+```
+
+In these plots the ellipses represent the distribution of values for the variable plotted on the perceptual map. In the first plot this is the oq variable. Each ellipse corresponds to different values of the variables. With dark blue representing low values and light blue representing high values. The center of the ellipse is the mean and the ellipse represent 10% of the distribution. These ellipse plots are visual ways of depicting the relationship the factors have with other variables, which helps in interpretation.
+
+These plots show clearly that overall quality, recommending, and having a problem are really helpful for interpretation. The first factor presents big differences in all three variables. Higher service quality is related to lower values of the first factor (note 10 is best quality). Recommending the service (Yes = 1, No =2) is related to lower values and having a problem (Yes = 1, No = 2) is related to higher values. Thus, the direction of these relationships implies the first factor is related to negative perceptions of the company. 
+
+The plots also reveal an interesting feature of the second component. For overall service quality, we see an inverted U shape where the highest overall quality perceptions are lower than the moderately high levels, but the lowest levels are the highest. Those willing to recommend national have higher values than those not willing. Those having a problem have lower values than those not having a problem. Thus, these suggest that higher values the second factor (PC2) are generally related to better overall quality, recommendations, and less problems. Interestingly, given the negative signs on the variables, higher quality here corresponds to lower perceptions of tangibles. 
+
+\section{Examining alternative pairs of principle components}
+
+We also examined the third factor as depicted in the graphs below. To do so, we change the \emph{choices} option to include PC3 instead of PC2 along with PC1. We find not only that PC3 explains a much smaller portion of the variation, but also that there are not immediately obvious, clear patterns in the items identified for this component.
+
+```{r}
+##This second set of plots examines what's going on in the third factor
+ggbiplot(resultPCA,alpha=.4,group=natData[complete.obsAll,'oq'],choices=c(1,3),ellipse=TRUE,ellipse.prob = .1)
+ggbiplot(resultPCA,alpha=.4,group=natData[complete.obsAll,'rec'],choices=c(1,3),ellipse=TRUE,ellipse.prob = .1)
+ggbiplot(resultPCA,alpha=.4,group=natData[complete.obsAll,'prob'],choices=c(1,3),ellipse=TRUE,ellipse.prob = .1)
+```
+
+This analysis doesn't reveal much additional insight and the third factor explains only 4% of the variation. Combined with our elbow rule finding, we would likely focus on the first two factors in this case. 
+
+\section{Summary}
+To summarize, our results suggest that most of the dimensions of service quality play a similar role for this company (PC1 explains 64% of variation and loads all negative). Our earlier observations make clear that this first factor represents  negative overall perceptions of the company. The second factor is primarily related to tangibles, which have a different relationship. In particular, tangibles has an inverted U relationship with overall quality. 
+
+\section{Illustrating Exploratory Factor Analysis}
+The above analysis focuses on a PCA approach to construct the factor analysis. There are other approaches. We illustrate below with a simple use of one other approach. The below analysis uses a method called maximum likelihood to calibrate the factor analysis. This second approach is optional to learn for class and is more illustrative that factor analysis has a range of methodologies within this class of feature extraction. 
+
+For this alternative approach, we also provide the number of factors (nf), the method (fm="ml"), and the rotation approach (rotate="varimax"). Given the number of factors as a constraint, the procedure identifies the factors that explain the data best using a maximum likelihood objective function and then apply the varimax rotation to those factors. This rotation creates a more interpretable picture. Explaining the details of maximum likelihood estimation and this second approach is beyond the scope of the current course and this serves only as an illustration of other possible methods. 
+
+```{r}
+##Alternative approach is to use maximum likelihood factor analysis
+fa2FV = fa(natData[complete.obsAll,itemNames],nfactors=2,fm="ml",rotate="varimax") #common rotation to use that makes loadings large or close to zero.
+plot(fa2FV)
+```
+
+Notice that this two factors solution and the one we found for the PCA solution provide very similar meaning to the two factors. That is, items 11-14 are loaded on to the second factor and the rest on to the first factor.

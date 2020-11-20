@@ -1,0 +1,133 @@
+---
+title: "yogurt"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+#clean all data
+```{r}
+rm(list = ls())
+```
+
+
+## set up environment
+```{r}
+library(ggplot2)
+library(gtools)
+library(wordcloud)
+library(tm)
+library(reshape2)
+library(foreign)
+
+filnm <- "Wegmans Survey"
+```
+
+## read the survey
+```{r}
+survey <- read.spss(paste(filnm,".sav",sep=""),to.data.frame=TRUE,use.value.labels=FALSE)   #this one is numerical value
+survey_factor <- read.spss(paste(filnm,".sav",sep=""), to.data.frame=TRUE,use.value.labels=TRUE,trim_values=TRUE)
+#peek data
+names(survey)
+
+#summary
+summary(survey_factor)
+```
+
+## extract performance variables
+```{r}
+perVar <- survey[,162:183]
+names(perVar)
+summary(perVar)
+```
+
+
+## ------- Face Validity Check ------- ##
+
+```{r}
+#check the marginal distribution graph
+par(mfrow=c(3,3)); #specifies the arrangements of the plots
+for (c in 1:length(survey_factor)) {
+  x = survey_factor[,c]
+  if (is.numeric(x)) {
+    hist(x, main = names(survey_factor)[c]) #main specify the title
+  } else {
+    # plot(x, main = names(survey_factor)[c])
+  }
+}
+```
+
+## NA Check
+```{r}
+corCheck <- cor(survey_data, use = "pairwise.complete.obs")
+sum(is.na(corCheck)/2)
+summary(corCheck)
+```
+
+
+## check for perfect correlation
+```{r}
+#reset diagno to zero
+diag(corCheck) = 0
+sum(corCheck == 1, na.rm = TRUE) / 2
+summary(corCheck == 1)
+```
+
+## free response check
+```{r}
+#questions: 14 16 17 18 19 23 26 29
+free_response <- survey[c(78,87,89,91,92,103, 116, 129)]
+
+#convert them to text
+#what prepare with GY
+prepare <- free_response[1][[1]]
+#why choose GY over traditional
+whyGY <- free_response[2][[1]]
+#first reason for certian brand
+reason1 <- free_response[3][[1]]
+#why Fage
+whyFage <- free_response[6][[1]]
+#why Chobani
+whyChobani <- free_response[7][[1]]
+#why Oiko
+whyOiko <- free_response[8][[1]]
+
+txt <- list(prepare,whyGY,whyFage,whyChobani,whyOiko,reason1)
+
+#use word cloud
+for (i in 1:length(txt)) {
+  docs = Corpus(VectorSource(txt[i]))
+  #clean the text
+  docs = tm_map(docs,removeNumbers)
+  docs = tm_map(docs,removePunctuation)
+  docs = tm_map(docs,stripWhitespace)
+  docs = tm_map(docs,content_transformer(tolower))
+  docs = tm_map(docs,removeWords,stopwords("english"))
+  
+  dtm = TermDocumentMatrix(docs)
+  matrix = as.matrix(dtm)
+  words = sort(rowSums(matrix),decreasing=TRUE) 
+  df = data.frame(word = names(words),freq=words)
+  
+  #create the worldcloud
+  set.seed(1234) #for repoducibility
+  wordcloud(words=df$word,freq = df$freq, min.freq = 1,max.words = 100, random.order = FALSE,rot.per = 0.35,colors = brewer.pal(8,"Dark2"))
+}
+```
+
+## Factor Analysis
+
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

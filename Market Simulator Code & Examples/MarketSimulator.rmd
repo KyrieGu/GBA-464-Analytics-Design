@@ -1,0 +1,156 @@
+---
+title: "Market Simulator"
+author: "Mitchell J. Lovett"
+date: "11/19/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+dir = "~/Dropbox/Analytics Design/Cases/New England Soup"
+setwd(dir)
+data = read.csv("NESoupData_200.csv")
+
+scens = list()
+scens[[1]]=2:4        # -Reg, + creamy
+scens[[2]]=c(2,4,5)   # -Reg + x-creamy
+scens[[3]]=2:5        # -Reg + creamy + x-creamy
+scens[[4]]=1:4        #  Reg + creamy
+scens[[5]]=c(1:2,4:5) #  Reg + x-creamy
+scens[[6]]=1:5        #  all in market
+scens[[7]] = c(1,2,4) #  status quo
+```
+
+We begin with the design of the top-level function for the software. We specify the output we want (or side-effects, but none in this case) as well as the arguments. This tells us what we need to accomplish.
+
+```{r specOnly}
+##Arguments:
+##  scenarios are the set of scenarios we are interested in evaluating
+##  data is the data containing the rank order information
+##Return:
+##  data.frame containing shares with columns corresponding to the columns in the data
+simScenarios = function(scenarios,data){
+}
+```
+
+The next step is to get clearer about the algorithm in the top-level function. Here, we need to create the return table, then loop over scenarios that we pass. For each scenario (for loop!), we calculate the market shares and then insert that information into the row of the result table. After we complete all scenarios, we return the result table. 
+
+Notice that we have put off most of the work for a still to be defined step inside the loop! We will now write that step. 
+
+```{r specPlusAlgorithm}
+##Arguments:
+##  scenarios are the set of scenarios we are interested in evaluating
+##  data is the data containing the rank order information
+##Return:
+##  data.frame containing shares with columns corresponding to the columns in the data
+simScenarios = function(scenarios,data){
+  ##create result table
+  ##loop over scenarios
+  ##  calculate market shares and save into result table in appropriate indexes for the scenario
+  ##return result table
+}
+```
+
+Now we fill in the specification of the function.
+```{r fullVersion}
+##Arguments:
+##  scenarios is a list of scenarios, which are vectors that index into data
+##  data is a data.frame containing the rank order information
+##  ... - an argument that accepts anything else and just passes it along
+##Return:
+##  data.frame containing shares with columns corresponding to the columns in the data
+simScenarios = function(scenarios,data,...){
+  res = matrix(nrow=length(scenarios),ncol=length(data)) #sets everything to NA by default
+  for(i in 1:length(scenarios)){ ##loop over scenarios
+    res[i, scenarios[[i]] ] = simFCShares(scenarios[[i]],data,...)
+    ##  calculate market shares and save to right columns in res for the scenario
+  }
+  res = as.data.frame(res); names(res) = names(data) #setting type and names
+  res ##return result table
+}
+
+```
+
+Now we turn to the work of the simScenarios, csimFCShares, which calculates the market shares. We start by dummying this function out with the specs and returning a generic object that allows the top-level function to execute.
+
+```{r simFCSchares_specOnly}
+##Arguments: scen indicates which columns of data are included in the scenario
+##data is full set of data Returns: vector of shares with length equal to number
+##of products in scenario
+simFCShares = function(scen,data){ 
+  #subset matrix of options to correspond to products in the scenario
+  #make consumers decisions by selecting the best ranked option available in the market
+  #calculate vector of shares by summing decisions and dividing by rows in data
+  #return shares
+  rep(1/length(scen),length(scen)) #dummied result where all shares are equal in scenario to allow simScenarios to run
+}
+#test the dummied worker function
+simFCShares(scens[[1]],data[,2:6])
+#test the top-level function using the dummied simFCShares
+simScenarios(scens,data[,2:6])
+```
+
+We now see our program works with the dummied data. Now we create a version with the algorithm.
+
+```{r simFCShares_fullVersion}
+##Arguments:
+##  scen indicates which columns of data are included in the scenario
+##  data is full set of data
+##Returns:
+##  vector of shares with same length as data containing the shares
+simFCShares = function(scen,data){ 
+  inmkt = data[,scen] #construct the subsetted matrix of options
+  bestOpts = apply(inmkt,1,which.min)  #identify which option is best = min value
+  decs = as.data.frame(model.matrix(~0+as.factor(bestOpts))) #fill decisions to be 0 or 1 for all products
+  shs = colSums(decs)/sum(decs) #assumes that total decisions is market size
+  names(shs) = names(inmkt) #attach labels
+  shs
+}
+
+##Test the code 
+#test the full worker function
+simFCShares(scens[[1]],data[,2:6])
+#test the top-level function using the full simFCShares
+simScenarios(scens,data[,2:6])
+
+```
+
+We have a very nice function now for simulating market shares for multiple scenarios given rank-order preferences! So now we can think about extending the function. In this example, there are two extensions dealing with rank data. 
+
+First, what if the highest number is best instead of the lowest? To handle this, we can just make a minor modification of the simFCShares function. We will add an argument bestValueIs that accepts either "low" or "high". If "high" is given, we 
+
+```{r simFCShares_alternateVersion}
+simFCShares = function(scen,data,bestValueIsLow=TRUE){ 
+  if(bestValueIsLow==FALSE) { #best value is high
+    data = -data  #make values opposite sign so e.g,. 5 become -5 and now finding the min still works.
+  }
+  inmkt = data[,scen] #construct the subsetted matrix of options
+  bestOpts = apply(inmkt,1,which.min)  #identify which option is best = min
+  decs = as.data.frame(model.matrix(~0+as.factor(bestOpts))) #fill to set of options marked 0 or 1
+  shs = colSums(decs)/sum(decs) #assumes that total decisions is market size
+  names(shs) = names(inmkt) #attach labels
+  shs
+}
+#test without passing the argument
+simFCShares(scens[[1]],data[,2:6])
+#test bestValueIsLow=TRUE still works same
+simFCShares(scens[[1]],data[,2:6],bestValueIsLow=TRUE)
+#test bestValueIsLow=FALSE still works same
+simFCShares(scens[[1]],data[,2:6],bestValueIsLow=FALSE)
+
+#test without passing the argument
+simScenarios(scens,data[,2:6])
+simScenarios(scens,data[,2:6],bestValueIsLow=TRUE)
+##But this doesn't work! Why is this so? Some scenarios get noone choosing a product inmkt
+#simScenarios(scens,data[,2:6],bestValueIsLow=FALSE)
+#Specifically, scenarios 4 and 6 are problems. For example:
+#simFCShares(scens[[4]],data[,2:6],bestValueIsLow=FALSE)
+simScenarios(scens[-c(4,6)],data[,2:6],bestValueIsLow=FALSE)
+```
+
+So, the second issue is a bit bigger of an issue. What if not all brands are chosen by some consumer? If this happens, the current algorithm breaks. Why? Because the algorithm relies on bestOpts having some of each possible value. That is needed to get the same sized result vector each time. 
+
+To fix this, we have to think of a different algorithm. Ideally, this would be a more robust one. How else could you make the consumer decisions? 
+
+

@@ -1,0 +1,467 @@
+---
+title: "National Insurance Case"
+author: Mitchell J. Lovett
+date: 11/1/2020
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+This case discusses an insurance company, national insurance, that ran a customer satisfaction survey with the goal of understanding their current performance and how their service recovery relates to satisfaction. This is mandate-oriented research with a descriptive analytics focus. 
+
+Below the case walks through specific research questions and analytics to address the analytics need.  
+
+First we install packages we need, if necessary, and load them into the library. Then we set filenames and directories. Then we load the data two ways using the library \texttt{foreign} and the function \texttt{read.spss}. The first call to \texttt{read.spss} obtains the numeric data, the second obtains the labels data. 
+```{r}
+
+#install.packages("ggplot2", dependencies=T)
+#install.packages("tm",dependencies=T)
+#install.packages("wordcloud", dependencies=T)
+#install.packages("gtools", dependencies=T)
+library(ggplot2)
+library(gtools)
+library(wordcloud)
+library(tm)
+library(reshape2)
+dir = "/Users/tianrungu/Tianrun/Rochester/Course/Fall B/GBA424 Analytics Design & Application/Modules/Module 2/National Insurance"
+setwd(dir)
+
+library(foreign)
+filnm = "national"; #this is the name of the file
+natLabData <- read.spss(paste(filnm,".sav",sep=""),to.data.frame=TRUE,use.value.labels=TRUE,trim_values=TRUE)
+natData <- read.spss(paste(filnm,".sav",sep=""),to.data.frame=TRUE,use.value.labels=FALSE); #turning values into numbers!
+```
+
+## Including Plots
+
+\section{Familiarize yourself with the data}
+Before getting to the focal analytics, we first need to familiarize ourselves with the data and response values. A good way to get started with this is to use the \texttt{names} and \texttt{summary} commands. 
+
+```{r}
+names(natData)
+summary(natLabData)
+```
+We see variables \texttt{p1} to \texttt{p22}, which are perceptual measures of the performance of the company on service quality dimensions. They are scaled on  These measures use the Likert scale with seven points. These individual scales are combined to make the multi-item scales \texttt{reliavrg}, \texttt{empavrg}, \texttt{tangavrg}, \texttt{respavrg}, and \texttt{assuravg}. These multi-item scales appear in the last columns of the dataset and are averages of subsets of the measurues \texttt{p1} to \texttt{p22}. In addition, there are measures \texttt{tanimp}, \texttt{reliimp}, \texttt{resimp}, \texttt{asrimp}, \texttt{empimp}, which represent the importance out of 100 that individuals allocated to these same six dimensions of service quality. The six dimensions are tangibles (appearance of assets owned by the company), reliability, responsiveness, assurance, and empathy. 
+
+\texttt{oq} is the overall service quality, \texttt{rec} is whether the respondent indicates they would recommend the company, \texttt{use} is how long the customer has used the insurance company, \texttt{prob} is whether the customer indicated experiencing a problem, \texttt{resolve} is whether the customer indicated having their problem resolved by the company. 
+
+In addition, the company tracks a number of demographic variables including gender (\texttt{sex}), maritale status (\texttt{mstat}), age (\texttt{age}), income (\texttt{inc}), and educaton \texttt{ed}. These variables are all categorical and follow standard approaches. 
+
+\section{Face validity checks}
+We check the summary output for possible face validity concerns. First one concern is about conformity/validity to specs related to the response values being outside of the expected range or set of response values. We confirm this doesn't appear to occur. Second, we check whether there is excessive missing data. We do this by looking at the number of NAs. 
+
+The only case that looks particularly worisome is \texttt{resolve} with 208 missing cases. We should always ask ourselves how our data could look like it is being presented to us, how likely it is. To answer this, we have to pose hypotheses about why the data look the way they do. This is thinking about the \emph{Data Generating Process}. In a survey, this means thinking through both the survey questions and flow (e.g., is there branching or conditional logic) as well as thinking through how likely a particular series of responses are. In this case, why do you think \texttt{resolve} has so many NAs? 
+
+Third, I normally plot the marginal distributions. While summary is helpful, it is sometimes hard to "see" strange things quickly with the text output. We can quickly plot the distribution of the data using either \texttt{plot} for factors and \texttt{hist} for numeric data. We check the type of data stored in each column using \texttt{is.numeric} and put these plots into blocks of 9 plots to make our life easier. 
+```{r, echo=FALSE}
+par(mfrow=c(3,3));
+for(j in 1:length(natLabData)){
+  x =natLabData[,j]
+  if(is.numeric(x)){
+    hist(x,main=names(natLabData)[j])
+  } else {
+    plot(x,main=names(natLabData)[j])
+  }
+}
+```
+
+We can also run correlations on the data and look for surprisingly high or low correlations. In particular, correlations of 100% are always a bad sign! Here, I present a quick check for 100% correlations. 
+
+```{r}
+corCheck = cor(natData,use="pairwise.complete.obs") #this ignores NAs by pairs of variables
+```
+
+Notice the warning. This is letting us know that we have some cases that have no variation in their pairwise.complete.obs. We can investigate further by checking how many NAs there are and running \texttt{summary} on \texttt{corCheck} to see where they are. After this investigation we see there are only two cases and they arise between \texttt{prob} and \texttt{resolve}. This is closely related to our earlier finding that resolve only has observations when there is a problem! This implies there will be no variation in problem when resolve is not NA.
+
+```{r}
+sum(is.na(corCheck))/2
+summary(corCheck)
+```
+
+The check on perfect correlation shows us that indeed we have a column that is perfectly correlated--marital status and age. We can go back to our plots from earlier and see, indeed the distributions are exactly the same. This suggests that we have a serious problem. Not both columns can be right! This will likely require us to go back and collaborate with the data provider. 
+
+```{r}
+diag(corCheck)=0 #diagonal of correlations return value is always 1 by definition, so eliminating these.
+sum(corCheck==1,na.rm=TRUE)/2 #correlations are given in full table, so duplicated.
+summary(corCheck==1)
+```
+
+In summary, we looked at several quick face validity checks:
+\begin{itemize}
+\item Look at \texttt{summary} for range of values 
+\item Look at \texttt{summary} for number of NA values
+\item Look at \texttt{plot} of factors and \texttt{hist} of numeric variables. Does it look strange?
+\item Look for NAs in the correlation after using \texttt{use=pairwise.complete.obs}
+\item Look for 100\% correlations when using \texttt{use=pairwise.complete.obs}
+\end{itemize}
+
+\section{How representative is our sample?}
+
+This section discusses how to evaluate whether your sample is representative of the population along a specific dimension. When do you need such a test? This test is only relevant if you have the goal of projecting to the population with your sample. If you used a quota sample and met your quotas, then these quotas already provide your assurance that the sample matches the population.\footnote{Of course, if you used disproportionate sampling, then you need to reweight the sample for aggregate conclusions.} So, this test is relevant when either your quotas went awry, you used probability sampling, or you used some other method but still think the sample might be representative. 
+
+The goal of this test is to evaluate whether a specific observable variable has the same distribution in the sample as the population. The null hypothesis for this test is that the sample and population proportions are the same. We construct a test statistic based on the expected proportions in the sample if the sample had the true population proportions ($P$. We subtract this expected proportion from the actual sample proportion ($M$), multiply by the sample size ($n$), and square these differences. Summing over these squared differences produces our test statistic, $\xi^2_{stat}$. Mathematically, where $k$ is the index for categories along our variable we test from 1 to $K$, the test statistic is constructed as, 
+
+\begin{equation}
+\xi^2_{stat} = \sum_{k=1}^{K}\left(n \left(P_k - \bar{M}_k \right)\right)^2
+\end{equation}
+
+We compare this test statistic against quantiles of the \emph{chi-squared} distribution. Thus, we compare against $\xi^2_{1-\alpha}$, where $\alpha$ is the desired p-value. We reject if $\xi^2_{stat}>\xi^2_{1-\alpha}$. In R, there are built-in functions to run this test, so you don't need to do this calculation yourself. However, it is important to recognize that rejecting the test means that we think the sameple \emph{differs} from the population. 
+
+The idea is that if we don't reject the null hypothesis, then sample bias is much less likely to arise due to sample selection. The test is not a guarantee against sample bias for three reasons. First, what we want is to not reject the null hypothesis. However, simply by being not very confident, we might not reject the null. As a result, we want reasonably large samples before we give much confidence to such a test. For this, a typical thought is to use more than 40 samples for at least most categories, if not all. Second, the variable we select to run the test on is only one of many possible variables that might exhibit the sample selection. If the variable is related to our study variables this increases our faith the test is helping to guard against selection bias, but testing multiple variables is also helpful. Third, even if the variable matches the proportions, there might still be selection within the categories. We always want to ask ourselves whether given our sampling method and potential sample issues, can the respondents within the category represent that category?
+
+In order to conduct this test, we need population proportions. We get these from the same sources as we obtain our quotas. Typical candidates include census products, syndicated large sample surveys, and customer databases. In this case, we take them from the customer database since we are trying to same something about customer satisfaction, so our population is customers. 
+
+Below we conduct such tests for gender and length of use. In each block, we set the population values (in the same order as the labels in the sample data). We then print out a table of the values. Finally, we conduct the test. The function \texttt{chisq.test} is used to perform a Chi-squared test. The first argument is the observed counts from your sample of all the levels for the categorical variable, and the second, p=…, represents the “expected” proportion, i.e., the population proportion.  
+
+```{r}
+##1) Test whether sample matches with population for gender and length of use
+##check gender:
+popSEX = c(.54,.46); #true population values, which we can get from customer system data
+sampSEX = table(natData$sex)
+
+cbind(popSEX,sampSEX = prop.table(sampSEX)); #creating table as matrix to print it
+chisq.test(sampSEX,p=popSEX)
+```
+
+The R output above shows that the Chi-square statistic is 0.3705, that degree of freedom is 1, and that the p-value is 0.5427. Hence we fail to reject the null hypothesis at any level of significance and the distribution of gender in the sample is not statistically different from that in the population. In other words, the sample matches the population on gender. Next we test length of use of the service.
+
+```{r}
+##check length of use
+popLU = c(.08,.09,.18,.65); #true population values, which we can get from customer system data
+sampLU = table(natData$use)
+
+cbind(popLU,sampLU=prop.table(sampLU)); #creating table as matrix to print it
+chisq.test(sampLU,p=popLU)
+```
+
+Chi-square statistic is 24.59, degree of freedom is 3, and p-value is 1.877e-5. Hence we reject the null at any typical level of significance. The sample doesn’t match the population on use length. First group and the last group are over-represented in the sample while the other two groups are under-represented. 
+
+Since the sample doesn't match the population, we might want to reweight the data. Usually one reweights the sample only if the variable that doesn't match is likely to be correlated (or is correlated) with other variables of interest. To create the weights use the formula $w_k = P_k/M_k$, where $w_k$ is the weight for category $k$, $P_k$ is the population proportion, and $M_k$ is the sample proportion. Once the weights are created, you need to build a variable that holds these for all the respondents. \texttt{wSamp} holds these weights for all cases. We construct this variable through thoughtful indexing into $w$ using the use category levels. Now whenever an analysis is done, one could use the \texttt{wSamp} to reweight. Keep in mind that when doing so, this will drop any observations that have missing values for length of use.
+
+```{r}
+#weights, if reweighting
+w = popLU/prop.table(table(natData$use)); ##formula is w=P/M
+#setting weight for each response in sample
+wSamp = w[as.numeric(natData$use)]; #this command indexes into w for each response picking the right value
+```
+
+For now, we will not use these weights in our analysis. 
+
+\section{Analysis for Analytics Goals}
+
+We are now going to start addressing the analytics goals that speak to the business needs. We will examine testing and visually presenting means of different variables. We will then discuss testing whether subgroups within a variable are different. 
+
+\subsection{Testing Whether Two Variables Are Different}
+
+We start with an analytics goal of describing performance and importance variables. On the performance sides, our analysis design will specifically answer how National Insurance is doing on service quality and what they do best. On the importance side we will ask what customers say is most and least important and how this importance relates to our relative performance.
+
+We will do some set up before running the analysis. When dealing with multiple variables, it is often helpful to group the variables together. THe variables below do this. \texttt{perfvars} groups all of the five performance variables together so that if we want to call all five variables we just use \texttt{perfvars} rather than calling those five. This is to save effort and make our code more extensible. Similarly we create a vector \texttt{impvars}. The versions with "f" at the end are the full names used to make the plots look prettier.
+```{r}
+##When dealing with sets of variables
+##Create a "vector" using c() of the labels for the set
+## of variables and another for the full labels
+
+#create indexing for performance and importance variables
+perfVars = c("reliavrg","empavrg","tangavrg","respavrg","assuravg"); perfVars=names(natData)[38:42]
+impVars = c("relimp","empimp","tanimp","resimp","asrimp")
+
+#create full names for performance and importance variables
+genVarsf = c("Reliability","Empathy", "Tangibles","Responsiveness","Assurance")
+perfVarsf = paste(genVarsf,"Perf.")
+impVarsf = paste(genVarsf,"Imp.")
+```
+
+We now use the variables above to efficiently create the information for our plots--means and standard errors
+```{r}
+#calculate means and standard errors for performance
+perfMeans = colMeans(natData[,perfVars],na.rm=TRUE)
+perfSE = apply(natData[,perfVars],2,sd,na.rm=TRUE)/
+  sqrt(colSums(!is.na(natData[,perfVars])))
+#calculate Means and standard errors for importance
+impMeans = colMeans(natData[,impVars],na.rm=TRUE)
+impSE = apply(natData[,impVars],2,sd,na.rm=TRUE)/
+  sqrt(colSums(!is.na(natData[,impVars])))
+perfImpDF = data.frame(genVarsf,perfVars,perfVarsf,perfMeans,perfSE,impVars,impVarsf,impMeans,impSE)
+```
+
+Now let’s make a couple of error bar plots to describe and visualize the data. We will use ggplot2 for this. We will use the ggplot() function with the main geom being geom_bar and we add to it a geom_errorbar. To set up the bars, we include in the aes() object y and x. To set up the error bars, we need to calculate the error bar limits we will use and include them in (same) aes() object as ymax and ymin. We add and subtract one standard error. Using a single standard deviation for error bars can be useful because then you can loosely interpret if the error bars cross-over each other as meaning the variables are not significantly different. Because we have multiple geoms, we create a common positioning object to pass to the creation of all layers 
+```{r}
+#create error bar plots for the performance variables and the importance variables
+dodge = position_dodge(width=.75); ##to form constant dimensions positioning for all geom's
+
+#first barplot with standard errors for the performance variables in descending order of means
+gp = ggplot(perfImpDF,aes(x=reorder(genVarsf,-perfMeans),y=perfMeans,ymax=perfMeans+perfSE,ymin=perfMeans-perfSE))
+gp + geom_bar(position=dodge,stat="identity",col=1,fill=2,width=.75) + 
+  geom_errorbar(position=dodge,width=1) + labs(x="Performance",y="Mean Rating (1-7)")
+```
+
+The above graph shows that the differences are not very large between cases, but large enough to show significant differences other than neighboring cases. For instance, reliability performance is significantly lower than assurance performance. 
+
+```{r}
+##And creating similar graph for importance.
+gi = ggplot(perfImpDF,aes(x=reorder(genVarsf,-impMeans),y=impMeans,ymax=impMeans+impSE,ymin=impMeans-impSE))
+gi + geom_bar(position=dodge,stat="identity",col=1,fill=2,width=.75) + 
+  geom_errorbar(position=dodge,width=1) + labs(x="Importance",y="Mean of Allocated Out of 100")
+```
+
+The same graph for importances shows that reliability is most important, following by responsiveness, assurance, empathy, and tangibles. Interestingly, this order does not match closely at all the performance ordering. This suggests what we perform well at is not what the consumer thinks is important. An important managerially relevant insight!
+
+If we want to be more precise we can also evaluate the uncertainty using a t-test. A similar concept would be to use the t-tests built into a linear regressions. 
+
+```{r combos1}
+##can run t-tests on these, but with the s.e., we already have the gist
+##to construct all paired combinations
+combos = combinations(5,2)
+combos = data.frame(combos,v1=perfVarsf[combos[,1]],v2=perfVarsf[combos[,2]],means=numeric(nrow(combos)),p.values=numeric(nrow(combos)))
+for(i in 1:nrow(combos)){
+  t_tmp = t.test(natData[,perfVars[combos[i,1]]],natData[,perfVars[combos[i,2]]],paired=TRUE)
+  combos[i,c("means","p.values")]=c(t_tmp$statistic,t_tmp$p.value)
+}
+```
+
+Taking the first example, according to the R output, t statistic is -1.97 and p-value is 0.0493. Hence we reject the null at 5% level of significance. The mean of reliavrg and of empavrg are statistically different. The average evaluations of those two aspects of service quality are different. We could already see this in the figure since the error lines didn't cover the means (the dots).
+
+\subsubsection{Multiple tests and p-value adjustments}
+
+If we wanted to get technical, these p-values are not accurate because we are testing many hypotheses. When you test many hypotheses, this can lead to the p-values being too low. Essentially, you are violating the principles of statistical testing. 
+
+There are multiple methods used to correct this issue. One of the simplest, early methods was Bonferroni's simple method. That approach simply mutiplies the p-value by the total number of hypotheses tested. In our example above, this is 12, the number of rows in \texttt{combos}. Other methods provide stronger tests, which are illustrated below. 
+
+```{r combos2}
+##Construct adjusted p-values with Bonferroni's simple method 
+##bf.p.values =  p-value*M, where M is number of hypothesis tests
+combos = data.frame(combos,bf.p.values = combos[,"p.values"]*nrow(combos))
+##Adjust p-values with a more powerful method. For additional information check help on p.adjust
+combos = data.frame(combos,adj.p.values=p.adjust(combos[,"p.values"],method="hommel"))
+```
+
+We can see a number of the tests that appeared significant at the 5\% level previously no longer have such low p-values. The effect of such adjustments allows us to internalize the lower confidence we have in our conclusions. Because these tests are in general conservative, we should interpret the results as being a more accurate reflection of our uncertainty. Also, note there are some conditions on these tests related to the independence of the samples. In this case, we might actually be worried about the possibility since we are using paired t.tests. In practice, you should be aware of these methods and the overconfidence that multiple testing produces without such adjustments. In many circumstances I find that practitioners do not use such correction approaches directly, but being aware of the relative shift (the Bonferroni adjustment rule) and when you need to worry about this (when you do many comparisons). 
+
+\subsection{Testing Whether Variables Differ Between Subgroups}
+
+In this example, we test whether our performance variables differ by gender. To do this, we use \texttt{t.test} or \texttt{lm}. We will use \texttt{lm} for this example. Like our past examples, we set up the tests as a \texttt{for} loop. This loop is indexing over the set of performance variables, calling one regression for each variable. The regression evaluates whether "Female" customers give significantly higher performance ratings than "Male" customers. 
+
+```{r}
+sexTests = matrix(nrow=length(perfVars),ncol=4);
+rownames(sexTests)=perfVarsf
+for(i in 1:length(perfVars)){ #looping over performance variables
+  slm = summary(lm(natData[,perfVars[i]]~sex,data=natLabData)) #runs regression
+  sexTests[i,]=slm[[4]][2,] #saves the row in the summary table corresponding to the sexFemale variable
+}
+colnames(sexTests) = colnames(slm[[4]])
+```
+
+We find that there are no significant differences across the two \texttt{sex} subgroups on the performance variables. You should be able to pattern match this code to produce a similar output for the importance variables. We don't need to even consider the adjusted p-values, since these make the p-values larger. Further, we probably don't need to visualize this result and instead just use a concise statement, if any at all. 
+
+For the next questions, we ask 
+
+```{r}
+probTests = matrix(nrow=length(perfVars),ncol=4);
+rownames(probTests)=perfVarsf
+for(i in 1:length(perfVars)){ #looping over performance variables
+  slm = summary(lm(natData[,perfVars[i]]~prob,data=natLabData)) #runs regression
+  probTests[i,]=slm[[4]][2,] #saves the row in the summary table corresponding to the probYes variable
+}
+colnames(probTests) = colnames(slm[[4]])
+```
+
+
+```{r}
+perfMeansByProb = apply(natData[,perfVars],2,tapply,natData$prob,mean,na.rm=TRUE)
+colnames(perfMeansByProb) = genVarsf
+perfMeansByProb = data.frame(prob = c("Problem","No Problem"),
+                             perfMeansByProb)
+perfMeansByProbLong = melt(perfMeansByProb, id=c("prob"))
+gp = ggplot(perfMeansByProbLong,aes(x=variable,y=value,fill=prob))
+gp + geom_bar(position=position_dodge(),stat="identity",col=1) + 
+   labs(x="Performance",y="Mean Rating (1-7)")
+```
+
+\subsection{Open-ended responses and simple text analysis}
+
+Wordclouds are a useful way to present free form text data from surveys. Typically, we might "clean" the text first, taking care of misspellings and potentially obtaining the stems. As this class is not focused on text analysis per se, I provide a simple use of wordclouds with only simple cleaning. 
+
+```{r}
+txt =  "Many years ago the great British explorer George Mallory, who was to die on Mount Everest, was asked why did he want to climb 
+it. He said, \"Because it is there.\"
+
+Well, space is there, and we're going to climb it, and the 
+moon and the planets are there, and new hopes for knowledge 
+and peace are there. And, therefore, as we set sail we ask 
+God's blessing on the most hazardous and dangerous and greatest 
+adventure on which man has ever embarked."
+
+docs = Corpus(VectorSource(txt))
+#Some functions you can use to eliminate unnecessary stuff and make better clouds
+docs = tm_map(docs,removeNumbers)
+docs = tm_map(docs,removePunctuation)
+docs = tm_map(docs,stripWhitespace)
+docs = tm_map(docs, content_transformer(tolower))
+docs = tm_map(docs, removeWords, stopwords("english"))
+#Here you create the term document matrix and evalually the word frequencies
+dtm = TermDocumentMatrix(docs) 
+matrix = as.matrix(dtm) 
+words = sort(rowSums(matrix),decreasing=TRUE) 
+df = data.frame(word = names(words),freq=words)
+#Create the wordcloud
+set.seed(1234) # for reproducibility 
+wordcloud(words = df$word, freq = df$freq, min.freq = 1,           max.words=200, random.order=FALSE, rot.per=0.35,            colors=brewer.pal(8, "Dark2"))
+```
+
+
+\section{Tips on recoding}
+
+```{r}
+#if you want to recode some columns of to a different value
+##create a new variable
+osq = natData$oq
+##set the values to the new values
+osq[osq<5] = 0; #subsetting only those variables that have values less than 5 and then setting those values to 0
+osq[osq>=5] = 1 #subsetting to only those variables that have values greater than or equal to 5 and then setting those values to 1
+```
+
+```{r}
+##If you want to drop some observations: recode the values to NA and use the na.rm=TRUE
+##what is we don't want to include the most satisfied from the analysis? (variable osq2 is without the most satisfied)
+osq2 = osq; #notice I am creating a new variable - use the new variable for the analysis!
+osq2[osq2==10]=NA; ##notice you need to use "==" to mean = when you mean equality. That's because = has a different meaning (assignment) and will cause problems!
+```
+
+
+\subsubsection{Imperative vs. functional programming}
+
+We briefly make a slight detour to discuss some programming concepts that can help more broadly, which we will apply to the code above. Entry level programming in R is usually done following the ideas in "imperative" programming. In imperative programming, you execute code to directly change the variables. In contrast in pure functional programming, you only return values using functions that create temporary storage that is returned upon finishing the function. I do NOT advocate pure functional programming, but moving in this direction can help make your code become more reusable and understandable. 
+
+We will go through an example here, using the code chunks \texttt{combos1} and \texttt{combos2} above. The code chunk, \texttt{combos1} constructs all possible combinations of comparisons, then sets up a \texttt{data.frame} to store the identity and test values, then uses a loop to construct all test values. This code is designed in an imperative programming style, since we are creating new objects and adjusting them in place as we walk through the \texttt{for} loop.   
+
+We will demonstrate how to construct a function that does this work. We begin with a simple version of the function that literally does the exact work above. 
+
+```{r allTests1}
+allTests1 = function(){ #declare the function
+  combos = combinations(5,2)
+  combos = data.frame(combos,v1=perfVarsf[combos[,1]],v2=perfVarsf[combos[,2]],
+                      means=numeric(nrow(combos)),p.values=numeric(nrow(combos)))
+  for(i in 1:nrow(combos)){
+    t_tmp = t.test(natData[,perfVars[combos[i,1]]],
+                   natData[,perfVars[combos[i,2]]],paired=TRUE)
+    combos[i,c("means","p.values")]=c(t_tmp$statistic,t_tmp$p.value)
+  }
+  ##bf.p.values =  p-value*M, where M is number of hypothesis tests
+  combos = data.frame(combos,bf.p.values = combos[,"p.values"]*nrow(combos))
+  ##Adjust p-values with a more powerful method.
+  combos = data.frame(combos,adj.p.values=p.adjust(combos[,"p.values"],method="hommel"))
+  combos #return the combos data.frame
+}
+combosNew = allTests1() #run function and save result
+sum(combos==combosNew)/prod(dim(combos)) #check if imperative code and function produce same results - should be 1 if all are equal
+```
+
+The function \texttt{allTests1} returns a data.frame that contains the full combos data. Notice the code is exactly the same except the opening line and the last two lines. In the opening line, we declare the function, \texttt{allTests1}. In the closing two lines we write \texttt{combos} to indicate to return that value when the function finishes and we close the function with a close brace. 
+
+While this function follows some principles of using functions, it fails to help us generalize the function to other settings. The reason is because we haven't passed any arguments. We need to ask ourselves what arguments we need to pass to make this function general. To answer this, we need to understand how we might we want to use this function in the future. This is a software design question, but when we are making an analytics product, this software design question is embedded into our analytics design. 
+
+For our purpose now, let us assume that we want our code to be able to do these tests for any setting where we have a \texttt{data.frame} and a set of columns from the \texttt{data.frame} on which we want to do pairwaise comparisons. Thus, we will revise our function to have three arguments: a \texttt{data.frame}, a vector of column names, and a vector of names for those columns. 
+
+```{r allTests2}
+##function accepts:
+##  a vector of variable names, vars
+##  a data frame, data
+##  a vector of variable fullnames, varnames
+## returns a data.frame containing columns 
+##  indexes X1, X2 for comparison indexes into vars
+##  variable names v1, v2 for each comparison
+##  mean differences, means
+##  p.values, for unadjusted p.values
+##  Bonferroni adjusted p.values, bf.p.values, assuming appropriate
+##  Hommel adjusted p.values, adj.p.values, assuming appropriate
+allTests2 = function(vars,data,varnames){ #declare the function
+  combos = combinations(length(vars),2)
+  combos = data.frame(combos,v1=varnames[combos[,1]],v2=varnames[combos[,2]],
+                      means=numeric(nrow(combos)),p.values=numeric(nrow(combos)))
+  for(i in 1:nrow(combos)){
+    t_tmp = t.test(data[,vars[combos[i,1]]],
+                   data[,vars[combos[i,2]]],paired=TRUE)
+    combos[i,c("means","p.values")]=c(t_tmp$statistic,t_tmp$p.value)
+  }
+  ##bf.p.values =  p-value*M, where M is number of hypothesis tests
+  combos = data.frame(combos,bf.p.values = combos[,"p.values"]*nrow(combos))
+  ##Adjust p-values with a more powerful method.
+  combos = data.frame(combos,adj.p.values=p.adjust(combos[,"p.values"],method="hommel"))
+  combos #return the combos data.frame
+}
+combosNew2 = allTests2(perfVars,natData,perfVarsf) #run function and save result
+sum(combos==combosNew2)/prod(dim(combos)) #check if imperative code and function produce same
+#combosNewFail = allTests2(c(perfVars,"junk"),natData,c(perfVarsf,"junk"))
+#sum(combos[1,]==combosNewFail)/prod(dim(combos[1,])) #check if imperative code and function produce same 
+```
+
+With this function, we can reuse it any time that we want to do such comparisons where the comparisons are between columns. The major changes to the code \texttt{allTests1} include
+\begin{itemize}
+\item The original combinations are constructed by passing the length of vars instead of a fixed number, 5. This allows us to pass different lengths of variables.
+\item We replaced perfVars with vars, perfVarsf with varnames, and natData with data
+\item We have added extensive comments at the top about the arguments and the return value.
+\end{itemize}
+
+The extensive comments at the top describe what is expected for the arguments and what is returned. Although the comments aren't necessary, especially when you first start coding this way, by forcing yourself to do this, it can improve the quality of your software design. For production ready functions, you would want to \emph{test} the arguments passed to your function to ensure that they are what you expect. If they are not, you throw warnings or errors since the result you return might not be as expected either. 
+
+In this function, three key tests are important to consider. First, we need the length of the vars to match the length of varnames. Second, we need each element in vars to match an index in data. Third, we need vars to have at least a length of 3, otherwise there is no multiple comparisons problem and we can just run the single test. Below we add these checks to our code. 
+
+Notice we do all of the tests in a single if clause. If any of the problems arise, we use the \texttt{stop} function and pass the text that describes what happened. The \texttt{stop} function breaks out of the function where it is called and throws an error. One alternative to having a single \texttt{if} statement with all of the tests would be to split the \texttt{if} statement into multiple \texttt{if} statements and then pass more informative error messages for each problem. 
+
+```{r allTests3}
+##function accepts:
+##  a vector of variable names, vars
+##  a data frame, data
+##  a vector of variable fullnames, varnames
+## returns a data.frame containing columns 
+##  indexes X1, X2 for comparison indexes into vars
+##  variable names v1, v2 for each comparison
+##  mean differences, means
+##  p.values, for unadjusted p.values
+##  Bonferroni adjusted p.values, bf.p.values, assuming appropriate
+##  Hommel adjusted p.values, adj.p.values, assuming appropriate
+allTests3 = function(vars,data,varnames){ #declare the function
+  errstmt="";
+  if(length(vars)!=length(varnames)) errstmt = paste(errstmt,"vars length not equal to varnames length")
+  if(length(vars)!=sum(vars%in%names(data))) errstmt = paste(errstmt,"Not all vars in data")
+  if(length(vars)<2) errstmt = paste(errstmt,"Function for vars >2 length")
+  if(length(vars)!=length(varnames) | length(vars)!=sum(vars%in%names(data)) | length(vars)<2){
+    stop(paste(" Arguments do not meet expectations:",errstmt)); #stop();
+  }
+  combos = combinations(length(vars),2)
+  combos = data.frame(combos,v1=varnames[combos[,1]],v2=varnames[combos[,2]],
+                      means=numeric(nrow(combos)),p.values=numeric(nrow(combos)))
+  for(i in 1:nrow(combos)){
+    t_tmp = t.test(data[,vars[combos[i,1]]],
+                   data[,vars[combos[i,2]]],paired=TRUE)
+    combos[i,c("means","p.values")]=c(t_tmp$statistic,t_tmp$p.value)
+  }
+  ##bf.p.values =  p-value*M, where M is number of hypothesis tests
+  combos = data.frame(combos,bf.p.values = combos[,"p.values"]/nrow(combos))
+  ##Adjust p-values with a more powerful method.
+  combos = data.frame(combos,adj.p.values=p.adjust(combos[,"p.values"],method="hommel"))
+  combos #return the combos data.frame
+}
+combosNew3 = allTests3(perfVars,natData,perfVarsf) #run function and save result
+sum(combos==combosNew2)/prod(dim(combos)) #check if imperative code and function produce same
+#combosNotFail = allTests3(perfVars[1:2],natData,perfVarsf[1:2]) #run function with values that fail
+#combosFail = allTests3(perfVars[1:2],natData,perfVarsf) #run function with values that fail
+#combosNewFail = allTests3(c(perfVars,"junk"),natData,c(perfVarsf,"junk"))
+
+```
+
+Using functions like this isn't just about being able to reuse your code. By adding checking, you reduce the chances that when you reuse it you will make a mistake. Further, by using functions, you only have to adjust one part of the code as you extend it. In fact, using functions has many benefits:
+\begin{enumerate}
+\item Ease of reading and understanding code
+\item Simple reusability by calling existing functions
+\item Can build in error checking to avoid mistakes in reusing code
+\item Fixing bugs is simpler, since only one copy of code to adjust
+\item Extending code to do more is easier, since only one copy of code to adjust
+\item Less namespace polution
+\item Less persistent memory use
+\end{enumerate}
+
+When do you know you should use a function instead of imperative coding approach? If you find yourself copying and pasting the same code within a single .R or .Rmd file, this is a big hint that you could probably use a function and save yourself trouble. As we move forward in the course, we will use more functions. This is particularly important for understanding how to do automated control goals and for more complex analytics projects. 

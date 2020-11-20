@@ -1,0 +1,105 @@
+
+#clean everything
+```{r}
+rm(list = ls())
+gc()
+```
+
+#library we use
+```{r}
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(ggplot2)
+library(grf)
+library(stargazer)
+```
+
+
+
+
+```{r Read Data}
+filename = "HW2 Data"
+rawData <- read.csv(paste(filename,".csv",sep = ""))
+names(rawData)
+summary(rawData)
+
+#without interaction summary
+summary(lm(clickPerDollar ~ factor(category) + factor(body) + 
+             factor(placement) + factor(adType) + ageMean, data = rawData))
+```
+
+```{r}
+summary(lm(clickPerDollar ~ factor(category)*ageMean + factor(category)*factor(placement) + factor(body) + 
+             factor(placement) + factor(adType), data = rawData))
+
+regression <- predict(lm(clickPerDollar ~ factor(category)*ageMean + factor(category)*factor(placement) + factor(body) + 
+             factor(placement) + factor(adType), data = rawData))
+```
+
+
+
+```{r Add Columns}
+#add "score" column
+margin = 0.011
+rawData$score = regression * margin
+#check
+names(rawData)
+
+#add "extend" column
+threhold = 1+0.1
+rawData$extend = rawData$score > threhold
+```
+
+
+```{r filter data}
+dt = data.table(subset(rawData,extend == TRUE))
+win = dt[,.(score,ageMean,clickPerDollar), by = .(category,placement,adType,body,keywords)]
+```
+
+
+
+
+```{r graph w/ post}
+dodge = position_dodge(width=0.5)
+ggplot(data = win,
+       aes(
+         fill = adType,
+         x = category,
+         y = score,
+       )) + 
+  geom_bar(position=dodge,stat="identity", width = 0.5)
+```
+
+```{r graph w/ body}
+par(mfrow=c(1,1),pty="s")
+dodge = position_dodge(width=0.5)
+ggplot(data = win,
+       aes(
+         fill = body,
+         x = category,
+         y = clickPerDollar
+       )) + 
+  geom_bar(position='stack',stat="identity", width = 0.5) +
+  theme(legend.text=element_text(size=8))
+ 
+
+```
+
+```{r}
+data <- data %>% mutate(agegroup = case_when(win$ageMean >= 40  & win$ageMean <= 49 ~ '3',
+                                             win$ageMean >= 30  & win$ageMean <= 39 ~ '2',
+                                             win$ageMean >= 20  & win$ageMean <= 29 ~ '1'))
+dodge = position_dodge(width=0.9)
+ggplot(data = win,
+       aes(
+         fill = category,
+         x = ageMean,
+         y = score
+       )) + 
+  geom_bar(position=dodge,stat="identity", width = 0.9) +
+  theme(legend.text=element_text(size=8))
+```
+
+
+

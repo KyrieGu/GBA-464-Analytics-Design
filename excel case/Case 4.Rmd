@@ -1,0 +1,9 @@
+---
+title: "Case 4 Excel"
+output: html_document
+---
+
+```{r Read Data}
+rawData <- load("MobileVisits.Rdata")
+```
+

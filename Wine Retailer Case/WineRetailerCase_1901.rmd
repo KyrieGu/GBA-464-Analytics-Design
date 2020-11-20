@@ -1,0 +1,314 @@
+---
+title: "Wine Retailer AB Test"
+subtitle: "When your sample size is large"
+author: 
+- name: Mitchell J. Lovett
+- name: Original case by Elea McDonnell Feit 6/10/2019
+date: Spring 2020
+output: pdf_document
+#widescreen: yes
+---
+
+```{r setup, include=FALSE}
+rm(list=ls()); gc();
+dir =  "~/Dropbox/Analytics Design/Cases/Wine Retailer AB Test/In Class Case Fall 2020"
+setwd(dir)
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(ggplot2)
+library(grf)
+library(stargazer)
+
+d = read.csv("test_data_1901.csv")
+```
+## {.flexbox .vcenter}
+
+<div class="centered">
+"When customers are randomly assigned to treatment and control groups, and there are many customers in each group, then you may effectively have multiple experiments to analyze."
+</div>
+- [Anderson and Simester (2011) A step-by-step guide to smart business experiments, *HBR*]() 
+
+Other times, we actually have multiple experiments! Same basic idea of analysis approach. 
+
+## Wine retailer experiment
+
+![](images/wine_store.png){width=90%}
+
+## Wine retailer experiment
+
+**Test setting**: email to retailer customers
+
+**Unit**: customer (email address)
+
+**Treatments**: email version A, email version B, holdout
+
+**Reponse**: open, click and 1-month purchase (\$)
+
+**Selection**: all active customers
+
+**Assignment**: randomly assigned (1/3 each) to email A, email B or control (ctrl)
+
+```{r}
+summary(d)
+```
+
+## Types of variables associated with a test {.build}
+- **Treatment indicator** (W's)
+    - Which (randomized) treatment was received  
+    - here these are group (email A, B, or ctrl)
+    
+- **Response** (Y's)
+    - Outcome(s) measured for each customer. Aka the DV or dependant variable.  
+    - Here these are open, click, and purch
+    
+- **Baseline variables** ("X's")
+    - Other stuff we know about customers **prior** to the randomization  
+    - here includes 
+    - amount purchased of specific wine types in past (chard, sav_blanc, syrah, cab)
+    - total past purchases, sum of chard+sav_blanc+syrah+cab in past year (past_purch)
+    - days since last purchase or 2 years if more than 2 years ago (last_purch)
+    - number of website visits (visits)
+
+
+We can depict the average effects in table and graph form as follows:
+```{r}
+dt = data.table(d)
+dagg = dt[,.(open = mean(open), 
+             click=mean(click), 
+             purch = mean(purch),
+             seOpen = sd(open)/sqrt(.N), 
+             seClick=sd(click)/sqrt(.N), 
+             sePurch = sd(purch)/sqrt(.N),.N),
+          by = .(group)]
+dagg
+```
+
+For this case explanation, we will focus on the purchases variable. 
+
+```{r}
+dodge = position_dodge(width=1); ##to form constant dimensions
+ggplot(aes(x=group,
+           y=purch,
+           ymax=purch+sePurch,
+           ymin=purch-sePurch),
+       data=dagg)+
+  geom_bar(position=dodge,stat="identity",col=2:4,fill=2:4) + 
+  geom_errorbar(position=dodge)
+  labs(x="Group",y="Purchases")
+
+```
+
+To evaluate the average causal effect on purchases we use lm as follows. 
+
+```{r}
+summary(lm(purch~group,data=d)) #compares each email to control group
+```
+
+All effects are both highly significant and the effect sizes are \$1.49 for email A and \$1.36 for email B. Notice further that the two emails do not appear to be significantly different from one another. As a result, we create a variable, \texttt{email}, that pools the two together. We then rerun the analysis with the pooled variables.  
+
+```{r}
+d$email = (d$group != "ctrl")
+names(d)
+summary(lm(purch~email,data=d)) #combining email groups
+```
+Notice that the standard error goes down because of the larger sample size. The results are also easier to interpret. Often we combine treatment groups in this way for ease of communication and for better understanding how precise our estimates are. 
+
+The precision of our estimates is sufficient here to establish the average effect, but if they didn't we could try to add covariates to absorb some of the error and reduce the standard errors. We can do this as follows here:
+
+
+```{r}
+#adding baseline variables as controls
+summary(lm(purch~email+chard+sav_blanc+syrah+cab+past_purch+last_purch+visits,data=d)) 
+summary(lm(purch~email+chard+sav_blanc+syrah+cab+last_purch+visits,data=d)) 
+#adding controls separating emails
+summary(lm(purch~group+chard+sav_blanc+syrah+cab+last_purch+visits,data=d)) 
+```
+
+First, the first model included all of the purchases by product category--\texttt{chard}, \texttt{sav_blanc}, \texttt{syrah}, and \texttt{cab}--along with the total past purchases, \texttt{past_purch}. These are perfectly collinear because \texttt{past_purch=chard+sav_blanc+syrah+cab}. Hence, in the first regression above, the row for \texttt{past_purch} is NA. In the following regressions, we drop the \texttt{past_purch} variable.
+
+Notice the standard errors do shrink some, but not by much. We now plot the purchase rates for \texttt{last_purch} and then create a dummy variable for \texttt{last_purch} to capture new versus older customers. 
+
+## Baseline variable: days since last purchase
+```{r, echo=FALSE}
+hist(d$last_purch, 
+     xlab="Days Since Last Purchase", 
+     ylab="Customers", 
+     main="Histogram of Days Since Last Purchase")
+d$recentPurch = (d$last_purch < 60)
+dt = data.table(d)
+
+```
+
+
+## Experiments within experiments
+Consider the customers who have made a purchase in the last 60 days.  
+
+Within that subset, customers were randomly assigned to recieve email A, email B or no email.  
+
+So, we can analyze the data for a subgroup as it's own test by slicing down and then re-analyzing.
+
+However, we will only have enough sample in the subgroup, if our test is big enough.
+
+
+## Slicing and dicing: recent buyers versus aged customers
+```{r}
+dagg = dt[,.(open = mean(open), 
+             click=mean(click), 
+             purch = mean(purch),
+             seOpen = sd(open)/sqrt(.N), 
+             seClick=sd(click)/sqrt(.N), 
+             sePurch = sd(purch)/sqrt(.N),.N),
+          by = .(group,recentPurch)]
+dagg
+```
+
+- Recent buyers buy more on average  
+- The email seems to produce a stronger effect on purchases for more recent buyers (~\$2 versus \$1)    
+
+
+## Is email more effective for recent buyers? 
+```{r, echo=FALSE, warning=FALSE}
+dodge = position_dodge(width=1); ##to form constant dimensions
+ggplot(aes(fill=group,
+           y=purch,
+           x=recentPurch,
+           ymax=purch+sePurch,
+           ymin=purch-sePurch),
+       data=dagg)+
+  geom_bar(position=dodge,stat="identity") + 
+  geom_errorbar(position=dodge)
+  labs(x="Group",y="Purchases")
+
+```
+
+
+## We slice based on baseline variables
+
+Anyone who keeps historic data on customers or visitors has lots of baseline variables available for slicing and dicing:   
+
+- website visits (to particular parts of the site)
+- sign-ups
+- geographic location
+- source
+- past purchase (by category)
+- recency
+- frequency
+
+
+## Exercise
+Re-analyze the opens, clicks and purchases for people who have bought syrah in the past. 
+```{r}
+d$anySyrah = (d$syrah > 0); dt = data.table(d);
+dagg = dt[,.(open = mean(open), 
+             click=mean(click), 
+             purch = mean(purch),
+             seOpen = sd(open)/sqrt(.N), 
+             seClick=sd(click)/sqrt(.N), 
+             sePurch = sd(purch)/sqrt(.N),.N),
+          by = .(group,anySyrah)]
+ggplot(aes(fill=group,
+           y=purch,
+           x=anySyrah,
+           ymax=purch+sePurch,
+           ymin=purch-sePurch),
+       data=dagg)+
+  geom_bar(position=dodge,stat="identity") + 
+  geom_errorbar(position=dodge)
+  labs(x="Group",y="Purchases")
+```
+
+
+## Repeated significance testing
+Slicing and dicing means you will run many significance tests. This means repeated hypothesis testing. Such repeated testing can lead to false positives. Remember every 20 variables you test at 95% significance roughly would lead to one being significant by chance! For experiments, this means you should consider several possibilities.
+
+First, you could view any single test as less significant than the test states. There are formal corrections for doing this such as the Bonferroni adjustments to p-values. These corrections are generally conservative and don't necessarily provide the desired guidance on which actions are optimal to take, but rather on which actions are significantly different. This is not the right decision criterion! 
+
+Second, if you think you've found a targeting criterion, you could consider re-testing the effect. Of course, you should consider value of information, which in this case you can calculate exactly if you want, since you can evaluate conservatively (using Bonferroni adjustments) how uncertain you are as well as how certain you'd be if you ran another experiment. 
+
+Next we will discuss constructing conditional causal effects using regression analysis. We first we consider just the \texttt{recentPurch} variable as a conditioning variable and pooling over the emails. 
+
+## Measuring causal effects with regression: Conditional causal effects
+```{r}
+#compares each email to control group
+lmInteraction = lm(purch~email*recentPurch,data=d)
+summary(lmInteraction) 
+```
+
+The main effect of the email variable is significant still, leading to $0.88 more sales. However, the interpretation is different. Now this effect relates to the omitted group from the interaction effect (when the recentPurch variable=0 or FALSE). Hence, the effect of \texttt{emailTRUE} is for those that have not bought recently. This group of customers are still significantly affected by the email.  
+
+This analysis reveals two other things about subgroups of customers. 
+
+1. Subgroups will vary in how much they engage in behaviors (main effect of baseline variables)
+    - Recent buyers tend to have \$12.26 higher average purchases in the future
+   
+2. Subgroups vary in how much they respond to treatments (interaction effects)
+    - Recent buyers are more affected by the email, leading to addition \$1.17 in spending
+
+Since the segmentation variable is categorical, to interpret the exact level of effect for each of the subgroups we use the main for the omitted group, and we add the main and interaction effects together for the included group. Here that means that the customers without recent purchases have an effect of \$0.88 and the customers with recent purchase have an effect of \$2.05. 
+
+We can also obtain this by rerunning the analysis in a slightly different formula as shown below:
+
+```{r}
+lmCellMeans = lm(purch~recentPurch + email:recentPurch,data=d)
+summary(lmCellMeans) #compares each email to control group
+```
+
+```{r}
+stargazer(lmInteraction,lmCellMeans,type="text")
+```
+
+
+When considering subgroups, it is sometimes helpful to also look at the individual treatments again. The reason is that some subgroups might respond more to particular treatments than others. 
+
+```{r}
+#compares each email to control group
+summary(lm(purch~group*recentPurch,data=d)) 
+```
+
+We still see the baseline variable has a significant positive effect on sales, indicating that purchases are higher for those that bought recently. In terms of the causal effects, both emails have a (marginally) significant main effect. Again, these main effects can be interpreted as for those not buying within the last 60 days.  Email B also has a significant interaction effect. This interaction effect for email B means that those buying recently have greater purchases than those that did not buy recently. Email A is almost marginally significant (at p-value of 0.1005). Interpreting this strictly means that for email A those buying recently were not affected differently from those not buying recently. 
+
+To understand the effect of the email on each group we need to add the main effect and interaction effects for the same email together. Instead of doing all of the math in our heads, we rerun the analysis.
+
+```{r}
+#compares each email to control group
+summary(lm(purch~0+recentPurch + group:recentPurch,data=d))
+```
+
+Here we can see that the effect for both emails is almost the same among those with recent purchases, but that email B is 25% lower for those without recent purchases. We can guess based on the value of the standard errors that the difference between emails is not significant. We can test this explicitly a number of different ways. Here we do so simply by dropping the control group. Note that strictly we are losing power here, so this is not the tightest way to do the test. 
+
+```{r}
+#compares across emails 
+summary(lm(purch~group*recentPurch,data=d,subset=d$email)) 
+```
+In this model set-up the omitted category for group is email A, not the control group. So the intercept represents average purchases for email A recipients without recent purchases. Likewise, the \texttt{recentPurchaseTRUE} represents the average purchases for email A recipients with recent purchases. The email B effects are in contrast to email A. Interpreting these we see that for those without recent purchases, email B is not significantly different than email A (-0.29) and for those with recent purchases, email B is also not significantly different from email A (0.31). Thus, we are probably safe in pooling over the emails for this analysis. 
+
+After we identify an uplift model we are confident in, we can use it to identify targets. While such targets can sometimes be identified directly by looking at the coefficients, if many variables are present, it can be helpful to use the conditional means to create scores for each potential target. In this case, these represent the treatment effect for each group. This takes us back to selecting a model of the treatment effects we are confident about. Assume, we decide to select the model with only recent purchases as the breakouts. Then we use the following model, which controls for recentPurchase while also allowing for distinct effects for those with and without a recent purchase. 
+
+```{r}
+lmToUse = lm(purch~recentPurch + email:recentPurch,data=d)
+stargazer(lmToUse,type="text")
+```
+
+We can then compare the effects against a threshold for the treatment effect size. For instance, if we know that we have a margin of 25\% and the opportunity cost for an email is 30 cents, then the formula is
+\begin{equation}
+  S_i * M_i - C_i > 0
+\end{equation}
+where $S_i$ is the score for case $i$, $M_i$ is the margin, and $C_i$ is the cost. Hence, the score must be bigger than the cost divided by the margin, or in this example, 120 cents. Our estimated coefficients are 0.882 and 2.050. Hence, we would only want to send an email to the people who had a recent purchase. 
+
+##Some further ideas NOT in the wine retailer
+
+Notice that in this case, with or without the email consumers can choose to purchase wine from the retailer. Hence, this is considered a \emph{lift} action. If consumers could only choose to purchase if they received an offer, it would be referred to as an \emph{exclusive} action. Exclusive actions allow for simpler models because we don't need a control group. The control group is by definition no response (i.e., 0)! If we have a single treatment, this means we can directly model the treatment effect as main effects of the baseline variables. With multiple treatments, we need to interact the treatments with those variables, still.  
+
+Because when we have exclusive actions the comparison is zero, we can use the \texttt{predict()} function to create our scores. This greatly simplifies evaluating who to target. With such exclusive actions, we just score them and compare against the threshold. 
+
+
+## Things you just learned 
+- Large sample -> look for heterogeneous treatment effects using baseline variables
+- Two ways to find heterogeneous treatment effects
+    - Slicing and dicing - just getting a sense
+    - Uplift modeling - measuring the effect and whether it is significant
+- How to target based on an uplift model
+- The difference between randomized control trials with lift models vs. exclusive actions
+    - For estimating effects
+    - For creating scores to use for targeting decisions

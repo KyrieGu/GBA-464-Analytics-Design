@@ -1,0 +1,98 @@
+---
+title: "Simple Geocoding Example"
+author: "Mitchell J. Lovett"
+date: "11/11/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+We will use the openstreetmaps API for this example. This is a public API. Note you can also use the Google maps API, but that requires more setup and has a licensing aspect to it.
+
+```{r}
+#install.packages("tmaptools")
+#install.packages("here")
+require(tmaptools)
+require(here)
+```
+
+The task we will focus on is geocoding from a name and reverse coding from a lon-lat location. 
+To get the location information for a point of interest, we need to pass the terms to search for: In this case we will pass TaiChi Bubble Tea, College Town, Rochester
+```{r}
+place1 = "Taichi Bubble Tea, College Town, Rochester"
+location1 = geocode_OSM(place1,details = TRUE, as.data.frame = TRUE)
+place2 = "Revolution Karaoke"
+location2 = geocode_OSM(place2,details = TRUE, as.data.frame = TRUE)
+location1
+location2
+```
+
+This gives us the location of the retail restaurants!  
+
+Now we reverse code this using just the lon and lat values. 
+
+```{r}
+placeReverse = rev_geocode_OSM(x = location1["lon"], y = location1["lat"],as.data.frame = TRUE)[, c("name")]
+placeReverse
+
+placeNearBy = rev_geocode_OSM(x = location1["lon"]-.0025, y = location1["lat"],as.data.frame = TRUE)[, c("name")]
+placeNearBy
+```
+We can recover the Taichi place from its lat and lon, and we can "move" around by adjusting the lat and lon and seeing what we run into. . .
+
+We can also evaluate distances between locations. We shouldn't use simple Euclidean distance and instead use so-called Haversine distance that deals with the spherical nature of the earth. 
+
+```{r}
+#Haversine distance - measures distance between points
+# on "big circle" due to Earth's spherical shape
+# see https://en.wikipedia.org/wiki/Haversine_formula
+my_dist <- function(long1, lat1, long2, lat2) {
+  rad <- pi/180
+  a1 <- lat1*rad
+  a2 <- long1*rad
+  b1 <- lat2*rad
+  b2 <- long2*rad
+  dlon <- b2 - a2
+  dlat <- b1 - a1
+  a <- (sin(dlat/2))^2 + cos(a1)*cos(b1)*(sin(dlon/2))^2
+  if(sqrt(a)>0 & sqrt(1-a)>0){
+    c<- 2*atan(sqrt(a)/sqrt(1 - a))
+  } else {
+    c <- 2*atan2(sqrt(a), sqrt(1 - a))
+  }
+  R <- 6371/1.6 # radius in miles around Washington DC 
+  d <- R*c
+  return(d)
+}
+
+my_dist(location1["lon"],location1["lat"],location2["lon"],location2["lat"])
+
+```
+
+Get the 20m state boundary files from here:
+https://www.census.gov/geographies/mapping-files/2013/geo/carto-boundary-file.html
+
+```{r}
+library(tidyverse)
+library(sf)
+
+usa <- "/Users/mitchlovett/Dropbox/Analytics Design/4. Geolocation Data and Segmentation/cb_2013_us_state_20m/cb_2013_us_state_20m.shp" %>%
+  st_read()
+
+(usa_48 <- usa %>%
+  filter(!(NAME %in% c("Alaska", "District of Columbia", "Hawaii", "Puerto Rico"))))
+
+load("/Users/mitchlovett/Box Sync/Mobile Case Data - Original/Simulated Data/MobileVisits.Rdata")
+
+ggplot(data = usa_48) +
+  geom_sf() + 
+  geom_point(data = venues, aes(x = longitude, y = latitude,color = factor(chain)), alpha = .2) +
+  coord_sf(xlim = c(-130, -60),
+           ylim = c(20, 50))
+
+```
+
